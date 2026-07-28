@@ -17,6 +17,23 @@ admin.initializeApp({
 });
 const db = admin.firestore();
 
+// How long each billing cycle covers, in milliseconds. A few days of grace
+// are added on top so a slightly late renewal charge (Gumroad retries
+// failed payments for a few days) doesn't cut someone off early.
+const GRACE_MS = 3 * 24 * 60 * 60 * 1000;
+const RECURRENCE_MS = {
+  monthly: 31 * 24 * 60 * 60 * 1000,
+  quarterly: 93 * 24 * 60 * 60 * 1000,
+  biannually: 183 * 24 * 60 * 60 * 1000,
+  yearly: 366 * 24 * 60 * 60 * 1000,
+  every_two_years: 732 * 24 * 60 * 60 * 1000,
+};
+function computeExpiry(recurrence, saleTimestamp) {
+  const base = saleTimestamp ? new Date(saleTimestamp).getTime() : Date.now();
+  const duration = RECURRENCE_MS[recurrence] || RECURRENCE_MS.monthly; // safe short default if unrecognized
+  return base + duration + GRACE_MS;
+}
+
 const app = express();
 app.use(cors());
 // Gumroad sends Ping as application/x-www-form-urlencoded
@@ -96,15 +113,20 @@ app.post("/gumroad-webhook", async (req, res) => {
       return res.status(200).send("refund processed");
     }
 
+    const expiresAt = computeExpiry(body.recurrence, body.sale_timestamp);
+
     await db.collection("users").doc(uid).set(
       {
         premium: true,
+        premiumExpiresAt: expiresAt,
+        gumroadRecurrence: body.recurrence || null,
         gumroadSaleId: body.sale_id || null,
+        gumroadSubscriptionId: body.subscription_id || null,
         gumroadEmail: body.email || null,
       },
       { merge: true }
     );
-    console.log(`Premium enabled for uid=${uid}`);
+    console.log(`Premium enabled for uid=${uid}, expires ${new Date(expiresAt).toISOString()}`);
     res.status(200).send("ok");
   } catch (err) {
     console.error(err);
