@@ -17,16 +17,19 @@ admin.initializeApp({
 });
 const db = admin.firestore();
 
-// How long each billing cycle covers, in milliseconds. A few days of grace
-// are added on top so a slightly late renewal charge (Gumroad retries
-// failed payments for a few days) doesn't cut someone off early.
-const GRACE_MS = 3 * 24 * 60 * 60 * 1000;
+// How long each billing cycle covers, in milliseconds. Uses the standard
+// "30 days per month" convention (so quarterly = 90 days, not a calendar-
+// accurate but confusing 93) since that's what people actually expect a
+// subscription period to mean. A small grace period is added on top so a
+// slightly delayed renewal charge (Gumroad can retry failed payments for a
+// few days) doesn't cut someone off right at the boundary.
+const GRACE_MS = 2 * 24 * 60 * 60 * 1000;
 const RECURRENCE_MS = {
-  monthly: 31 * 24 * 60 * 60 * 1000,
-  quarterly: 93 * 24 * 60 * 60 * 1000,
-  biannually: 183 * 24 * 60 * 60 * 1000,
-  yearly: 366 * 24 * 60 * 60 * 1000,
-  every_two_years: 732 * 24 * 60 * 60 * 1000,
+  monthly: 30 * 24 * 60 * 60 * 1000,
+  quarterly: 90 * 24 * 60 * 60 * 1000,
+  biannually: 180 * 24 * 60 * 60 * 1000,
+  yearly: 365 * 24 * 60 * 60 * 1000,
+  every_two_years: 730 * 24 * 60 * 60 * 1000,
 };
 function computeExpiry(recurrence, saleTimestamp) {
   const base = saleTimestamp ? new Date(saleTimestamp).getTime() : Date.now();
