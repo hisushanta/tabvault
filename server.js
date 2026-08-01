@@ -1,10 +1,9 @@
-// server.js — TabVault backend (Gumroad version)
-// One job: when Gumroad notifies us of a sale (via "Ping"), verify it's real,
-// find the TabVault user ID that was passed at checkout, and flip
-// `premium: true` on their Firestore doc.
-//
-// You don't need to deploy this until manual link-sharing gets tedious.
-// Until then, Path A (see backend/README.md) handles everything by hand.
+// server.js — Tabodex backend (Gumroad version)
+// One job: when Gumroad notifies us of a sale or renewal (via "Ping"),
+// verify it, find the matching Firebase user, and set premium:true with an
+// accurate expiry date on their Firestore doc. Refunds and failed renewals
+// are handled by letting that expiry date simply pass — no separate
+// "cancellation" event needed.
 
 const express = require("express");
 const cors = require("cors");
@@ -18,11 +17,11 @@ admin.initializeApp({
 const db = admin.firestore();
 
 // How long each billing cycle covers, in milliseconds. Uses the standard
-// "30 days per month" convention (so quarterly = 90 days, not a calendar-
-// accurate but confusing 93) since that's what people actually expect a
-// subscription period to mean. A small grace period is added on top so a
-// slightly delayed renewal charge (Gumroad can retry failed payments for a
-// few days) doesn't cut someone off right at the boundary.
+// "30 days per month" convention (so quarterly = 90 days) since that's what
+// people actually expect a subscription period to mean. A small grace
+// period is added on top so a slightly delayed renewal charge (Gumroad can
+// retry failed payments for a few days) doesn't cut someone off right at
+// the boundary.
 const GRACE_MS = 2 * 24 * 60 * 60 * 1000;
 const RECURRENCE_MS = {
   monthly: 30 * 24 * 60 * 60 * 1000,
@@ -43,11 +42,10 @@ app.use(cors());
 app.use(express.urlencoded({ extended: true }));
 app.use(express.json());
 
-// Simple health check — visiting the base URL in a browser should show this,
-// not an error. Useful for confirming the server itself deployed correctly,
-// separate from confirming the /gumroad-webhook path specifically.
+// Simple health check — visiting the base URL in a browser should show
+// this, not an error. Confirms the server deployed correctly.
 app.get("/", (req, res) => {
-  res.send("TabVault backend is running. Gumroad Ping URL: /gumroad-webhook");
+  res.send("Tabodex backend is running. Gumroad Ping URL: /gumroad-webhook");
 });
 
 // --- Gumroad Ping webhook ---
@@ -60,18 +58,19 @@ app.post("/gumroad-webhook", async (req, res) => {
     // purchase to see exactly what Gumroad actually sent.
     console.log("Gumroad Ping received:", JSON.stringify(body));
 
-    // Confirm this sale is genuinely for our product, not a stray Ping
+    // Confirm this sale is genuinely for our product, not a stray Ping.
+    // Must be the short permalink code (e.g. "soboo"), not the full URL.
     if (process.env.GUMROAD_PRODUCT_PERMALINK &&
         body.permalink !== process.env.GUMROAD_PRODUCT_PERMALINK) {
       console.log(`Ignored: permalink "${body.permalink}" does not match configured "${process.env.GUMROAD_PRODUCT_PERMALINK}"`);
       return res.status(200).send("ignored: different product");
     }
 
-    // Try each way of finding the TabVault user ID, in order of preference:
+    // Try each way of finding the right Firebase user, in order of preference:
     let uid = null;
 
     // 1. URL param appended automatically by the extension's Upgrade button
-    //    e.g. https://you.gumroad.com/l/tabvault-premium?tv_uid=abc123
+    //    e.g. https://you.gumroad.com/l/tabodex-premium?tv_uid=abc123
     if (body.url_params) {
       try {
         const params = JSON.parse(body.url_params);
@@ -122,10 +121,10 @@ app.post("/gumroad-webhook", async (req, res) => {
       {
         premium: true,
         premiumExpiresAt: expiresAt,
-        gumroadRecurrence: body.recurrence || null,
         gumroadSaleId: body.sale_id || null,
         gumroadSubscriptionId: body.subscription_id || null,
         gumroadEmail: body.email || null,
+        gumroadRecurrence: body.recurrence || null,
       },
       { merge: true }
     );
@@ -138,4 +137,4 @@ app.post("/gumroad-webhook", async (req, res) => {
 });
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`TabVault backend running on port ${PORT}`));
+app.listen(PORT, () => console.log(`Tabodex backend running on port ${PORT}`));
